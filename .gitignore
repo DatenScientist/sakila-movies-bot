@@ -172,3 +172,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+*.pyc
+*.pyo
+.DS_Store
+sakila.env

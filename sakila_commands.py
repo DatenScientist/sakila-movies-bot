@@ -3,6 +3,7 @@
 import os
 from dotenv import load_dotenv
 import mysql.connector
+from pymongo import MongoClient
 
 load_dotenv("sakila.env")
 
@@ -17,17 +18,14 @@ def connect_db():
 
     return mysql.connector.connect(**dbconfig)
 
+# Connecting to MongoDB Atlas to write and read the queries
+def connect_mongo():
+    mongo_uri = os.getenv("MONGO_URI")
+    mongo_db = os.getenv("MONGO_DB")
 
-# Connection to write and read the queries
-def connect_query_db():
-    dbconfig = {
-        'host': os.getenv("DB_HOST"),
-        'user': os.getenv("DB_USER"),
-        'password': os.getenv("DB_PASSWORD"),
-        'database': os.getenv("DB_PROJECT")
-    }
+    client = MongoClient(mongo_uri)
+    return client[mongo_db]
 
-    return mysql.connector.connect(**dbconfig)
 
 
 # Getting list of movie categories
@@ -69,39 +67,93 @@ def create_category_map(file_path: str) -> dict:
 
 # Sending the selected movie category to the query database
 def insert_category(category_id: str, category_name: str):
-    query = """
-        INSERT INTO search_queries (category_id, category_name) VALUES (%s, %s);
-    """
-    
-    try:
-        connection = connect_query_db()
-        cursor = connection.cursor()
-        cursor.execute(query, (category_id, category_name))
-        connection.commit()
-    except mysql.connector.Error as err:
-        print(f"Error: {err}")
-    finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+    db = connect_mongo()
+    collection = db["category"]
+
+    existing = collection.find_one({"category_id": category_id})
+
+    if existing:
+        collection.update_one(
+            {"category_id": category_id},
+            {"$inc": {"count": 1}}
+        )
+    else:
+        collection.insert_one({
+            "category_id": category_id,
+            "category_name": category_name,
+            "count": 1
+        })
+
+
+
+
+
 
 # Sending the selected year of release of the film to the query base
-def insert_year(year):
-    query = f"""
-    INSERT INTO search_queries (release_year) VALUES ({year});
-    """
-    
-    try:
-        connection = connect_query_db()
-        cursor = connection.cursor()
-        cursor.execute(query)
-        connection.commit()
-    except mysql.connector.Error as err:
-        print(f"Error: {err}")
-    finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+def insert_year(year: int):
+    db = connect_mongo()
+    collection = db["year"]
+
+    existing = collection.find_one({"release_year": year})
+
+    if existing:
+        collection.update_one(
+            {"release_year": year},
+            {"$inc": {"count": 1}}
+        )
+    else:
+        collection.insert_one({
+            "release_year": year,
+            "count": 1
+        })
+
+
+
+def insert_movie(film_id, title, release_year, description, category_id, category_name, length, rating):
+    db = connect_mongo()
+    collection = db.movie
+
+    existing = collection.find_one({"film_id": film_id})
+    if existing:
+        collection.update_one({"_id": existing["_id"]}, {"$inc": {"count": 1}})
+    else:
+        collection.insert_one({
+            "film_id": film_id,
+            "title": title,
+            "release_year": release_year,
+            "description": description,
+            "category_id": category_id,
+            "category_name": category_name,
+            "length": length,
+            "rating": rating,
+            "count": 1
+        })
+
+
+
+
+def insert_actor(actor_id: str, first_name: str, last_name: str):
+    db = connect_mongo()
+    collection = db["actor"]
+
+    existing = collection.find_one({"actor_id": actor_id})
+
+    if existing:
+        collection.update_one(
+            {"actor_id": actor_id},
+            {"$inc": {"count": 1}}
+        )
+    else:
+        collection.insert_one({
+            "actor_id": actor_id,
+            "first_name": first_name,
+            "last_name": last_name,
+            "count": 1
+        })
+
+
+
+
 
 
 # Getting list of movies by category
@@ -229,7 +281,6 @@ def movies_by_title(movie_title: str):
 
 # Getting list of movies by actor and sending the actor to the query database
 def movies_by_actor(actor_id: str):
-    # Ensure category_id is used directly in the SQL query
     query = """
         SELECT 
             film.film_id, title, release_year
@@ -248,38 +299,44 @@ def movies_by_actor(actor_id: str):
         WHERE
             actor_id = %s;
     """
-    insert_actor = """
-        INSERT INTO Project_Shukrullo.search_queries (actor_id, first_name, last_name) 
-        VALUES (%s, %s, %s);
-    """
-    
+
     try:
         connection = connect_db()
         cursor = connection.cursor()
+
+        # Получаем фильмы
         cursor.execute(query, (actor_id,))
         movies = cursor.fetchall()
-        # Join the results into a single string with each row on a new line
+
+        # Сохраняем в файл
         result_str = '\n'.join(f"[{row[0]:4}] {row[1]}, {row[2]}" for row in movies)
-        # Save the result to a file or process it as needed
         with open('movies_by_actor.txt', 'w') as file:
             file.write(result_str)
+
+        # Получаем данные об актёре
         cursor.execute(actor_query, (actor_id,))
         actor = cursor.fetchone()
         actor_id, first_name, last_name = actor
-        cursor.execute(insert_actor, (actor_id, first_name, last_name))
-        connection.commit()
+
+        # MongoDB
+        insert_actor(actor_id, first_name, last_name)
+
     except mysql.connector.Error as err:
-        print(f"Error: {err}")
+        print(f"MySQL Error: {err}")
     finally:
         if connection.is_connected():
             cursor.close()
             connection.close()
+
     return first_name, last_name
+
+
+
+
 
 
 # Getting detailed information about a movie by ID number and sending the movie to the query database
 def movie_by_id(movie_id: str):
-    # Ensure category_id is used directly in the SQL query
     query = """
         SELECT 
             film.film_id,
@@ -305,20 +362,16 @@ def movie_by_id(movie_id: str):
         WHERE
             film.film_id = %s;
     """
-    insert_movie = """
-        INSERT INTO Project_Shukrullo.search_queries 
-            (film_id, title, release_year, description, category_id, category_name) 
-        VALUES (%s, %s, %s, %s, %s, %s);
-    """
-    
+
     try:
         connection = connect_db()
         cursor = connection.cursor()
         cursor.execute(query, (movie_id,))
         movie = cursor.fetchone()
+
         film_id, title, release_year, description, category_id, category_name, length, rating = movie
-        
-        # Join the results into a single string with each row on a new line
+
+        # Сохраняем в файл
         result_str = f"""Film ID: [{film_id}]
 Title: {title}
 Release year: {release_year}
@@ -326,141 +379,101 @@ Description: {description}
 Category: {category_name}
 Length: {length}
 Rating: {rating}"""
-        
-        # Save the result to a file or process it as needed
         with open('movie_details.txt', 'w') as file:
             file.write(result_str)
-        
-        cursor.execute(insert_movie, (film_id, title, release_year, description, category_id, category_name))
-        connection.commit()
+
+        # MongoDB
+        insert_movie(
+            film_id=film_id,
+            title=title,
+            release_year=release_year,
+            description=description,
+            category_id=category_id,
+            category_name=category_name,
+            length=length,
+            rating=rating
+        )
+
     except mysql.connector.Error as err:
-        print(f"Error: {err}")
+        print(f"MySQL Error: {err}")
     finally:
         if connection.is_connected():
             cursor.close()
             connection.close()
+
+
+
 
 
 # Getting the most popular queries by movies
 def queries_by_movies():
-    query = """
-        SELECT 
-            film_id, title, release_year, COUNT(title) AS cnt_query,
-            ROW_NUMBER() OVER (ORDER BY COUNT(title) DESC) AS row_by_count
-        FROM
-            search_queries
-        WHERE
-            title IS NOT NULL
-        GROUP BY title
-        LIMIT 10;
-    """
-    try:
-        connection = connect_query_db()
-        cursor = connection.cursor()
-        cursor.execute(query)
-        movies = cursor.fetchall()
-        # Join the results into a single string with each row on a new line
-        #header_str = f' #. [filmID] Title, Year - Queries\n\n'
-        result_str = '\n'.join(f"{row[4]:2}. [{row[0]}] {row[1]}, {row[2]} - {row[3]}" for row in movies)
-        # Save the result to a file or process it as needed
-        with open('queries_by_movies.txt', 'w') as file:
-            file.write(result_str)
-    except mysql.connector.Error as err:
-        print(f"Error: {err}")
-    finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+    db = connect_mongo()
+    collection = db["movie"]
+
+    top_movies = collection.find().sort("count", -1).limit(10)
+
+    result_str = '\n'.join(
+        f"{i+1:2}. [{doc['film_id']}] {doc['title']}, {doc['release_year']} - {doc['count']}"
+        for i, doc in enumerate(top_movies)
+    )
+
+    with open('queries_by_movies.txt', 'w') as file:
+        file.write(result_str)
+
+
 
 
 # Getting the most popular queries by category
 def queries_by_category():
-    query = """
-        SELECT 
-            category_name, COUNT(category_name) AS cnt_query,
-            ROW_NUMBER() OVER (ORDER BY COUNT(category_name) DESC) AS row_by_count
-        FROM
-            search_queries
-        WHERE
-            category_name IS NOT NULL AND release_year IS NULL
-        GROUP BY category_name
-        LIMIT 10;
-    """
-    try:
-        connection = connect_query_db()
-        cursor = connection.cursor()
-        cursor.execute(query)
-        genres = cursor.fetchall()
-        # Join the results into a single string with each row on a new line
-        result_str = '\n'.join(f"{row[2]:2}.  {row[0]} - {row[1]}" for row in genres)
-        # Save the result to a file or process it as needed
-        with open('queries_by_category.txt', 'w') as file:
-            file.write(result_str)
-    except mysql.connector.Error as err:
-        print(f"Error: {err}")
-    finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+    db = connect_mongo()
+    collection = db["category"]
+
+    top_categories = collection.find().sort("count", -1).limit(10)
+
+    result_str = '\n'.join(
+        f"{i+1:2}.  {doc['category_name']} - {doc['count']}"
+        for i, doc in enumerate(top_categories)
+    )
+
+    with open('queries_by_category.txt', 'w') as file:
+        file.write(result_str)
+
+
+
 
 
 # Getting the most popular queries by actors
 def queries_by_actors():
-    query = """
-        SELECT 
-            first_name, last_name, COUNT(first_name) AS cnt_query,
-            ROW_NUMBER() OVER (ORDER BY COUNT(first_name) DESC) AS row_by_count
-        FROM
-            search_queries
-        WHERE
-            first_name IS NOT NULL
-        GROUP BY first_name, last_name
-        LIMIT 10;
-    """
-    try:
-        connection = connect_query_db()
-        cursor = connection.cursor()
-        cursor.execute(query)
-        genres = cursor.fetchall()
-        # Join the results into a single string with each row on a new line
-        result_str = '\n'.join(f"{row[3]:2}.  {row[0]} {row[1]} - {row[2]}" for row in genres)
-        # Save the result to a file or process it as needed
-        with open('queries_by_actors.txt', 'w') as file:
-            file.write(result_str)
-    except mysql.connector.Error as err:
-        print(f"Error: {err}")
-    finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+    db = connect_mongo()
+    collection = db["actor"]
+
+    top_actors = collection.find().sort("count", -1).limit(10)
+
+    result_str = '\n'.join(
+        f"{i+1:2}.  {doc['first_name']} {doc['last_name']} - {doc['count']}"
+        for i, doc in enumerate(top_actors)
+    )
+
+    with open('queries_by_actors.txt', 'w') as file:
+        file.write(result_str)
+
+
+
 
 
 # Getting the most popular queries by year of release
 def queries_by_year():
-    query = """
-        SELECT 
-            release_year, COUNT(release_year) AS cnt_query,
-            ROW_NUMBER() OVER (ORDER BY COUNT(release_year) DESC) AS row_by_count
-        FROM
-            search_queries
-        WHERE
-            release_year IS NOT NULL AND category_name IS NULL
-        GROUP BY release_year
-        LIMIT 10;
-    """
-    try:
-        connection = connect_query_db()
-        cursor = connection.cursor()
-        cursor.execute(query)
-        years = cursor.fetchall()
-        # Join the results into a single string with each row on a new line
-        result_str = '\n'.join(f"{row[2]:2}.  {row[0]} - {row[1]}" for row in years)
-        # Save the result to a file or process it as needed
-        with open('queries_by_year.txt', 'w') as file:
-            file.write(result_str)
-    except mysql.connector.Error as err:
-        print(f"Error: {err}")
-    finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+    db = connect_mongo()
+    collection = db["year"]
+
+    top_years = collection.find().sort("count", -1).limit(10)
+
+    result_str = '\n'.join(
+        f"{i+1:2}.  {doc['release_year']} - {doc['count']}"
+        for i, doc in enumerate(top_years)
+    )
+
+    with open('queries_by_year.txt', 'w') as file:
+        file.write(result_str)
+
+

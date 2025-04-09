@@ -1,3 +1,5 @@
+import asyncio
+import nest_asyncio
 import os
 from dotenv import load_dotenv
 from typing import Final
@@ -16,7 +18,7 @@ YEARS_PER_PAGE = 10
 
 # Generate keyboard for years
 def generate_year_keyboard(page: int):
-    years = [str(year) for year in range(1980 + page * YEARS_PER_PAGE, 1980 + (page + 1) * YEARS_PER_PAGE)]
+    years = [str(year) for year in range(1990 + page * YEARS_PER_PAGE, 1990 + (page + 1) * YEARS_PER_PAGE)]
     keyboard = [
         [InlineKeyboardButton(year, callback_data=f'year_{year}') for year in years[i:i+5]]
         for i in range(0, len(years), 5)
@@ -24,7 +26,7 @@ def generate_year_keyboard(page: int):
     navigation_buttons = []
     if page > 0:
         navigation_buttons.append(InlineKeyboardButton("Previous", callback_data=f'prev_{page}'))
-    if page < (2023 - 1980) // YEARS_PER_PAGE:
+    if page < (2025 - 1990) // YEARS_PER_PAGE:
         navigation_buttons.append(InlineKeyboardButton("Next", callback_data=f'next_{page}'))
     if navigation_buttons:
         keyboard.append(navigation_buttons)
@@ -196,7 +198,7 @@ async def button_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Relese years command
 async def release_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = generate_year_keyboard(0)
-    await update.message.reply_text('Search by movie release date\nSelect years from 1980 to 2023:', reply_markup=reply_markup)
+    await update.message.reply_text('Search by movie release date\nSelect years from 1990 to 2025:', reply_markup=reply_markup)
 
 
 # Relese years button
@@ -240,11 +242,11 @@ async def button_release(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith('next_'):
             page = int(data.split('_')[1]) + 1
             reply_markup = generate_year_keyboard(page)
-            await query.message.edit_text('Search by movie release date\nSelect years from 1980 to 2023:', reply_markup=reply_markup)
+            await query.message.edit_text('Search by movie release date\nSelect years from 1990 to 2025:', reply_markup=reply_markup)
         elif data.startswith('prev_'):
             page = int(data.split('_')[1]) - 1
             reply_markup = generate_year_keyboard(page)
-            await query.message.edit_text('Search by movie release date\nSelect years from 1980 to 2023:', reply_markup=reply_markup)
+            await query.message.edit_text('Search by movie release date\nSelect years from 1990 to 2025:', reply_markup=reply_markup)
         else:
             raise ValueError("Invalid callback data format.")
     except ValueError as e:
@@ -385,11 +387,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Set up logging
-# logging.basicConfig(
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#     level=logging.INFO
-# )
-# logger = logging.getLogger(__name__)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+# Reducing the log level for httpx
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 async def handle_error(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"Update {update} caused error {context.error}")
@@ -397,8 +400,8 @@ async def handle_error(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # The main part
-def main():
-    app = Application.builder().token(TOKEN).build()
+async def main():
+    app = (Application.builder().token(TOKEN).build())
     
     # Handlers
     app.add_handler(CommandHandler("start", start_command))
@@ -418,10 +421,31 @@ def main():
     # Log all errors
     app.add_error_handler(handle_error)
     
-    print('Bot is running...')
-    # logger.info('Bot is running...')
-    app.run_polling(poll_interval=1)
+    # Launching the bot
+    logging.info("Bot is running...")
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
 
+    # Waiting for the stop (Ctrl+C)
+    try:
+        await asyncio.Event().wait()
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Stopping the bot...")
 
+    # Finish it carefully
+    await app.updater.stop()
+    await app.stop()
+    await app.shutdown()
+    logging.info("Bot has been stopped.")
+
+# Launch
 if __name__ == '__main__':
-    main()
+    import nest_asyncio
+    nest_asyncio.apply()
+
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        print("\nBot stopped gracefully. Goodbye 👋")
+

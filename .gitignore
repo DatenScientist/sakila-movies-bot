@@ -177,3 +177,5 @@ cython_debug/
 *.pyo
 .DS_Store
 sakila.env
+*.txt
+!requirements.txt

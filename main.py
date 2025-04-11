@@ -1,6 +1,4 @@
-
 import asyncio
-from aiohttp import web
 import nest_asyncio
 import os
 from dotenv import load_dotenv
@@ -401,16 +399,6 @@ async def handle_error(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # logger.error(f"Update {update} caused error {context.error}")
 
 
-
-async def keep_alive():
-    app = web.Application()
-    app.router.add_get('/', lambda request: web.Response(text="Bot is running"))
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 8080)
-    await site.start()
-    print("Keep-alive server is running on port 8080")
-    
 # The main part
 async def main():
     app = (Application.builder().token(TOKEN).build())
@@ -435,15 +423,9 @@ async def main():
     
     # Launching the bot
     logging.info("Bot is running...")
-
-    # Initialize the application
-    await app.initialize() 
-    
-    await asyncio.gather(
-        keep_alive(),  # Keep-alive сервер
-        app.start(),
-        app.updater.start_polling(),
-    )
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
 
     # Waiting for the stop (Ctrl+C)
     try:
@@ -459,7 +441,6 @@ async def main():
 
 # Launch
 if __name__ == '__main__':
-    import nest_asyncio
     nest_asyncio.apply()
 
     try:

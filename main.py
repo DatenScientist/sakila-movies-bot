@@ -435,9 +435,12 @@ async def main():
     
     # Launching the bot
     logging.info("Bot is running...")
+
+    # Initialize the application
+    await app.initialize() 
+    
     await asyncio.gather(
         keep_alive(),  # Keep-alive сервер
-        app.initialize(),
         app.start(),
         app.updater.start_polling(),
     )

@@ -117,9 +117,9 @@ python main.py
 
 ---
 
-## 🙌 Author
+## 🤝 Author
 
-**Shukrullo Olimov** — created this project while halfway through his studies in the *Data Analyst* program at **IT Career Hub GmbH**. This bot served as the **final project** for the **Python Fundamentals** module.
+**Shukrullo Olimov** — This Telegram bot was created as the final project for the *Python Fundamentals* module at the end of the first semester of the **Data Analyst** program at **IT Career Hub GmbH**.
 
 ---
 
